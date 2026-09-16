@@ -445,6 +445,13 @@ scheduler(void)
         // to release its lock and then reacquire it
         // before jumping back to us.
         p->state = RUNNING;
+        // Print scheduling details only for the shell and spin processes
+        // so the trace focuses on the processes required for this project.
+        if(strncmp(p->name, "sh", 16) == 0 || strncmp(p->name, "spin", 16) == 0){
+           printf("Process %s is of Process ID %d, Queue Type %d, and Quantum Size %d\n",
+                 p->name, p->pid, p->queuetype, p->quantumsize);
+        }
+
         c->proc = p;
         swtch(&c->context, &p->context);
 
