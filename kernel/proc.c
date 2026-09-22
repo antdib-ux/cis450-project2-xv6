@@ -125,6 +125,10 @@ found:
   p->pid = allocpid();
   p->state = USED;
 
+  // Part 2: Initialize every new process with a default queuetype and quantumsize
+  p->queuetype = 0;
+  p->quantumsize = 4;
+
   // Allocate a trapframe page.
   if ((p->trapframe = (struct trapframe *)kalloc()) == 0) {
     freeproc(p);
@@ -445,6 +449,12 @@ scheduler(void)
         // to release its lock and then reacquire it
         // before jumping back to us.
         p->state = RUNNING;
+
+        // Part 2: display queue information ONLY if that process is named "spin" or "sh"
+        if(strncmp(p->name,"sh",2) == 0 || strncmp(p->name, "spin", 4) == 0){
+          printk("Process %s is of Process ID %d, Queue Type %d, and Quantum Size %d \n", p->name, p->pid, p->queuetype, p->quantumsize);
+        }
+
         c->proc = p;
         swtch(&c->context, &p->context);
 

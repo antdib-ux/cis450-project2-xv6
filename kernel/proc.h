@@ -89,6 +89,11 @@ struct proc {
   int xstate;           // Exit status to be returned to parent's wait
   int pid;              // Process ID
 
+  // Part 2: added queuetype and quantumsize integer members to store scheduling type and assigned quantum size, respectively
+  int queuetype;
+  int quantumsize;
+
+
   // wait_lock must be held when using this:
   struct proc *parent; // Parent process
 
