@@ -124,7 +124,7 @@ mkfs/mkfs: mkfs/mkfs.c $K/fs.h $K/param.h
 # details:
 # http://www.gnu.org/software/make/manual/html_node/Chained-Rules.html
 .PRECIOUS: %.o
-#spin.c implemented as a user program
+# spin.c defined as a user program by adding to UPROGS, which builds and includes it in the xv6 file-system image.
 UPROGS=\
 	$U/_spin\
 	$U/_cat\
