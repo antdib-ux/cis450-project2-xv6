@@ -125,6 +125,10 @@ found:
   p->pid = allocpid();
   p->state = USED;
 
+  // Part 2: Initialize every new process with a default queuetype and quantumsize
+  p->queuetype = 0;
+  p->quantumsize = 4;
+
   // Allocate a trapframe page.
   if ((p->trapframe = (struct trapframe *)kalloc()) == 0) {
     freeproc(p);
