@@ -428,10 +428,14 @@ kwait(uint64 addr)
 void
 scheduler(void)
 {
+  //points to process and cpu
   struct proc *p;
   struct cpu *c = mycpu();
 
+  //clear process amount
   c->proc = 0;
+
+  //LOOP INDEFINITELY
   for (;;) {
     // The most recent process to run may have had interrupts
     // turned off; enable them to avoid a deadlock if all
@@ -441,36 +445,66 @@ scheduler(void)
     intr_on();
     intr_off();
 
-    int found = 0;
-    for (p = proc; p < &proc[NPROC]; p++) {
+    //
+    //
+    //PROJECT 3 CODE, HELPER FUNCTIONS COMMENTED OUT
+    //iterate for all processes, initial to locate all new processes
+    for (p = proc; p < &proc[NPROC]; p++){
+
       acquire(&p->lock);
-      if (p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        // Print scheduling details only for the shell and spin processes
-        // so the trace focuses on the processes required for this project.
-        if(strncmp(p->name, "sh", 16) == 0 || strncmp(p->name, "spin", 16) == 0){
-          printk("Process %s is of Process ID %d, Queue Type %d, and Quantum Size %d\n",
-                 p->name, p->pid, p->queuetype, p->quantumsize);
-        }
 
-        c->proc = p;
-        swtch(&c->context, &p->context);
-
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-        found = 1;
+      //new process, set to Q1 by default
+      if(p->queue_level == 0 && p->state == RUNNABLE){
+        p->queue_level = 1;
+        //p->ticks_left = q_quantum(1);
+        //q_enqueue(p);
       }
+
       release(&p->lock);
-    }
-    if (found == 0) {
+    }//END OF QUEUE INIT LOOP
+
+    //update pointer to point to highest priority process
+    //p = q_pick();
+
+    //check that a process was selected
+    if (p == 0){
       // nothing to run; stop running on this core until an interrupt.
       asm volatile("wfi");
+      //reiterate
+      continue;
     }
-  }
+
+    acquire(&p->lock);
+    if(p->state == RUNNABLE){
+      p->state = RUNNING;
+
+      if (strncmp(p->name, "sh", 16) == 0 || strncmp(p->name, "spin", 16) == 0) {
+        printk("Process %s is of Process ID %d, Queue Type %d, and Quantum Size %d\n",
+                p->name, p->pid, p->queue_level, q_quantum(p->queue_level) * 100);
+      }
+
+      c->proc = p;
+      swtch(&c->context, &p->context);
+
+      c->proc = 0;
+      p->ticks_left--;
+
+      if (p->state == RUNNABLE){
+        if(p->ticks_left <= 0){
+          //q_demote(p);
+          //q_enqueue(p);
+        }else{
+          //q_enqueue_front(p);
+        }
+      }else{
+        //q_remove(p);
+        p->queue_level = 0;
+      }
+    }
+
+    release(&p->lock);
+  }// END OF INDEFINITE LOOP
+
 }
 
 // Switch to scheduler.  Must hold only p->lock
