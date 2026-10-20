@@ -432,6 +432,8 @@ scheduler(void)
   struct proc *p;
   struct cpu *c = mycpu();
 
+  static int q3_arr_i = 0;
+
   //clear process amount
   c->proc = 0;
 
@@ -463,7 +465,7 @@ scheduler(void)
       release(&p->lock);
     }//END OF QUEUE INIT LOOP
 
-    //update pointer to point to highest priority process
+    //update p to point at most interactive process
     //p = q_pick();
 
     //check that a process was selected
@@ -478,18 +480,25 @@ scheduler(void)
     if(p->state == RUNNABLE){
       p->state = RUNNING;
 
+      if(p->queue_level == 3){
+        q3_arr_i = p - proc;
+      }
       if (strncmp(p->name, "sh", 16) == 0 || strncmp(p->name, "spin", 16) == 0) {
-        printk("Process %s is of Process ID %d, Queue Type %d, and Quantum Size %d\n",
-                p->name, p->pid, p->queue_level, q_quantum(p->queue_level) * 100);
+        printk("Process %s is of Process ID %d, Queue Type %d, and Quantum Size %d [Q3 AT INDEX %d]\n",
+                p->name, p->pid, p->queue_level, q_quantum(p->queue_level) * 100, q3_arr_i);
       }
 
+      //set process, run
       c->proc = p;
       swtch(&c->context, &p->context);
 
+      //clear process, decrement timer ticks
       c->proc = 0;
       p->ticks_left--;
 
+      //confirm process is not frozen, else reset priority
       if (p->state == RUNNABLE){
+        //if process runs out of time, reset; else restart from top of queue
         if(p->ticks_left <= 0){
           //q_demote(p);
           //q_enqueue(p);
