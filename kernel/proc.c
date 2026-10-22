@@ -616,10 +616,19 @@ kwait(uint64 addr)
 void
 scheduler(void)
 {
+  ///TODO: uncomment helper fcns for implementation
+
   struct proc *p;
   struct cpu *c = mycpu();
 
+  //iterator pointer to track current process being observed.
+  struct proc *currP;
+  //integer used to store current array index of the process being ran in Q3
+  static int q3ArrIndex = 0;
+
   c->proc = 0;
+
+  //LOOP INDEFINITELY
   for (;;) {
     // The most recent process to run may have had interrupts
     // turned off; enable them to avoid a deadlock if all
@@ -629,36 +638,106 @@ scheduler(void)
     intr_on();
     intr_off();
 
-    int found = 0;
-    for (p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
-      if (p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        // Print scheduling details only for the shell and spin processes
-        // so the trace focuses on the processes required for this project.
-        if(strncmp(p->name, "sh", 16) == 0 || strncmp(p->name, "spin", 16) == 0){
-          printk("Process %s is of Process ID %d, Queue Type %d, and Quantum Size %d\n",
-                 p->name, p->pid, p->queuetype, p->quantumsize);
-        }
 
-        c->proc = p;
-        swtch(&c->context, &p->context);
+    //iterate for all processes; for loop initializes all newly introduced processes
+    for (currP = proc; currP < &proc[NPROC]; currP++){
+      //lock
+      acquire(&currP->lock);
 
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-        found = 1;
+      //search for a new process that is runnable
+      //new processes will contain a queue level of 0 by default
+      if(currP->queue_level == 0 && currP->state == RUNNABLE){
+        //assign highest level priority; MLFQ will run a process at the highest level priority initially
+        currP->queue_level = 1;
+
+        //initialize counter for current process
+        ///currP->ticks_left = q_quantum(1);
+
+        //add to head of Q1 to ensure it runs first
+        ///q_enqueue(currP);
       }
-      release(&p->lock);
-    }
-    if (found == 0) {
+
+      //unlock
+      release(&currP->lock);
+    }//END OF QUEUE INIT LOOP
+
+    //update p to point at most interactive process
+    //if a new process was added, it is expected to be picked
+    ///p = q_pick();
+
+    //check that a process was selected; if p==0, p does not point to a process; wait until it does
+    if (p == 0){
       // nothing to run; stop running on this core until an interrupt.
       asm volatile("wfi");
+      //reiterate
+      continue;
     }
-  }
+
+    //lock
+    acquire(&p->lock);
+
+    //check if process is ready to run
+    if(p->state == RUNNABLE){
+      //set state; process will now be running for one tick
+      p->state = RUNNING;
+
+      //set to current process in cpu
+      c->proc = p;
+      //begin process
+      swtch(&c->context, &p->context);
+
+      //clear process, decrement timer ticks
+      c->proc = 0;
+      p->ticks_left--;
+
+
+      ///TODO: remove; replace with printf logic
+      if(p->queue_level == 3){
+        q3ArrIndex = p - proc;
+      }
+      if (strncmp(p->name, "sh", 16) == 0 || strncmp(p->name, "spin", 16) == 0) {
+        printk("Process %s is of Process ID %d, Queue Type %d, and Quantum Size %d [Q3 AT INDEX %d]\n",
+                p->name, p->pid, p->queue_level, q_quantum(p->queue_level) * 100, q3ArrIndex);
+      }
+      ///end TODO
+
+      //check that process was yielded
+      //if statement adjusts queues if necessary prior to reiterating
+      if (p->state == RUNNABLE){
+        //if process runs out of time, reset Round-Robin timer or demote
+        if(p->ticks_left <= 0){
+          //if process is already in the lowest priority queue (Q3), process is in a Round-Robin scheduler
+          //no demotions; instead, reset the process' timer for 600ms and send to tail of Q3
+          if(p->queue_level == 3){
+            ///p->ticks_left = q_quantum(3);
+            ///q_enqueue(p);
+
+          //if not in Q3, demote process to the tail of the next queue
+          }else{
+            ///q_demote(p);
+            ///q_enqueue(p);
+          }
+
+        //if process did not run out of time, its priority in the queue should be maintained
+        }else{
+          ///q_enqueue_front(p);
+        }
+
+      //if process was not yielded, it stopped and should be removed from queue
+      }else{
+        ///q_remove(p);
+      }
+
+    //if process is not runnable, check that it's not complete, waiting, or currently running
+    //if process is none of those things, it needs to be reintroduced to the head of its current queue
+    //otherwise, process was stolen by another cpu before it locked; ignore attempts to change for now
+    }else if(p->state != ZOMBIE && p->state != SLEEPING && p->state != RUNNING){
+      ///q_enqueue_front(p);
+    }
+
+    release(&p->lock);
+  }// END OF INDEFINITE LOOP
+
 }
 
 // Switch to scheduler.  Must hold only p->lock
