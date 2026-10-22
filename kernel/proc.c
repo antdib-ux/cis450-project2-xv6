@@ -499,7 +499,32 @@ sched(void)
   swtch(&p->context, &mycpu()->context);
   mycpu()->intena = intena;
 }
+// Count each timer interrupt as 100ms
+// Leave quantum resets and queue changes to scheduler()
+void
+scheduler_tick(void)
+{
+  struct proc *p = myproc();
 
+  if (p == 0)
+    return;
+  // Protect counter while updating, check for expiration
+  acquire(&p->lock);
+
+  if (p->ticks_left > 0)
+    p->ticks_left--;
+
+  int quantum_expired = (p->ticks_left == 0);
+
+  release(&p->lock);
+
+  // Report tick without process lock hold
+  printk("Process %d has consumed 100ms\n", p->pid);
+
+  // yield() acquires p->lock, releases before calling
+  if (quantum_expired)
+    yield();
+}
 // Give up the CPU for one scheduling round.
 void
 yield(void)
