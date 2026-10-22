@@ -26,6 +26,178 @@ extern char trampoline[]; // trampoline.S
 // must be acquired before any p->lock.
 struct spinlock wait_lock;
 
+// ======================== Project 3 Functions ========================
+// sMLFQ state. Three circular arrays, one per level (Q1 index = 0, Q2 index = 1, Q3 index = 2).
+// qhead[i] is the index of the front entry of queue i. The tail slot is (qhead + qcount) % NPROC.
+// For Q3 (i == 2) this head index is the Q3 pointer, q_pick() advances it, 
+// and a process that doesn't finish is sent to the tail.
+// All of this, plus every p->in_queue, is protected by qlock.
+struct spinlock qlock;
+struct proc *queues[3][NPROC];
+int qhead[3];   // index of the front process
+int qcount[3];  // amount of processes
+ 
+// Initialize qlock and make all three queues empty.
+// Called once from procinit() to validate queues before any process exists.
+void qinit(void)
+{
+  initlock(&qlock, "qlock");
+
+  for (int i = 0; i < 3; i++) {
+    qhead[i] = 0;
+    qcount[i] = 0;
+  }
+}
+ 
+// Quantum in timer ticks for a level (1 tick = 100 ms).
+int q_quantum(int level)
+{
+  if (level == 1)
+    return 1; // 100 ms
+  if (level == 2)
+    return 3; // 300 ms
+  if (level == 3)
+    return 6;   // 600 ms
+
+  return 0;
+}
+ 
+// Append p to the tail of the queue for p->queue_level.
+// Caller must hold p->lock (we read queue_level). Takes qlock internally.
+// If p is already queued, skip to prevent adding twice.
+void q_enqueue(struct proc *p)
+{
+  acquire(&qlock); // lock the queue
+
+  int i = p->queue_level - 1;
+
+  // Reject invalid levels
+  if (i < 0 || i >= 3) {
+    release(&qlock);
+    return;
+  }
+
+  // Do not insert a process twice or exceed queue capacity.
+  if (!p->in_queue && qcount[i] < NPROC) {
+    int tail = (qhead[i] + qcount[i]) % NPROC; // tail slot
+
+    queues[i][tail] = p;
+    qcount[i]++;
+    p->in_queue = 1;
+  }
+
+  release(&qlock); // unlock the queue
+}
+ 
+// Insert p at the head of its queue. Same locking rules as q_enqueue.
+// Only needed if a process is preempted mid-quantum.
+void q_enqueue_front(struct proc *p)
+{
+  acquire(&qlock);
+
+  int i = p->queue_level - 1;
+
+  // Reject invalid levels
+  if (i < 0 || i >= 3) {
+    release(&qlock);
+    return;
+  }
+
+  // Avoid duplicate entries and prevent queue overflow.
+  if (!p->in_queue && qcount[i] < NPROC) {
+    qhead[i] = (qhead[i] + NPROC - 1) % NPROC; // step head back one slot
+    queues[i][qhead[i]] = p; // move p to new head slot
+    qcount[i]++;
+
+    p->in_queue = 1;
+  }
+
+  release(&qlock);
+}
+ 
+// Remove and return the front process of the highest-priority non-empty
+// queue, or 0 if every queue is empty. Caller holds no locks.
+// The returned process is not locked and is not yet running, the scheduler
+// must acquire p->lock and re-check p->state == RUNNABLE.
+struct proc *q_pick(void)
+{
+  struct proc *p = 0;
+ 
+  acquire(&qlock);
+
+  for (int i = 0; i < 3; i++) {
+    if (qcount[i] > 0) {
+      p = queues[i][qhead[i]];
+
+      queues[i][qhead[i]] = 0;  // clear this slot
+      qhead[i] = (qhead[i] + 1) % NPROC; // advance head (the Q3 pointer for i == 2)
+      qcount[i]--;
+
+      p->in_queue = 0; // safe, in_queue is protected by qlock, not p->lock
+      break;
+    }
+  }
+
+  release(&qlock);
+  return p;
+}
+ 
+// Remove p from whatever queue holds it, does nothing if p isn't queued.
+// Caller holds nothing or p->lock, qlock protects queue contents and in_queue
+void q_remove(struct proc *p)
+{
+  acquire(&qlock);
+
+  for (int i = 0; i < 3; i++) {
+    for (int k = 0; k < qcount[i]; k++) {
+      int index = (qhead[i] + k) % NPROC;
+
+      if (queues[i][index] == p) {
+        // Shift later entries forward to close the gap.
+        for (int j = k; j < qcount[i] - 1; j++) {
+          int current = (qhead[i] + j) % NPROC;
+          int next = (qhead[i] + j + 1) % NPROC;
+          queues[i][current] = queues[i][next];
+        }
+
+        // Clear the old tail slot and update the queue count.
+        int tail = (qhead[i] + qcount[i] - 1) % NPROC;
+
+        queues[i][tail] = 0;
+        qcount[i]--;
+
+        // The process has been removed from the queue.
+        p->in_queue = 0;
+        release(&qlock);
+        return;
+      }
+    }
+  }
+
+  // Repair the flag if it was set but no queue contained the process.
+  p->in_queue = 0;
+  release(&qlock);
+}
+ 
+// Move p down one level (except for Q3) and refill its quantum.
+// Caller must hold p->lock. Only edits fields, it doesn't enqueue,
+// so the scheduler calls q_demote(p) then q_enqueue(p).
+void q_demote(struct proc *p)
+{
+  if (p->queue_level < 1 || p->queue_level > 3)
+    return;
+
+  if (p->queue_level < 3)
+    p->queue_level++;
+
+  // Give the process a full quantum for its new/current level.
+  p->ticks_left = q_quantum(p->queue_level);
+}
+ 
+
+
+
+
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
 // guard page.
@@ -48,6 +220,7 @@ void
 procinit(void)
 {
   struct proc *p;
+  qinit();  // P3: initialize queues
 
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
@@ -125,6 +298,11 @@ found:
   p->pid = allocpid();
   p->state = USED;
 
+  // P3: new processes start in Q1 with a full Q1 quantum, not yet queued.
+  p->queue_level = 1;
+  p->ticks_left = q_quantum(1);
+  p->in_queue = 0; // slot is unused so it can't be queued, freeproc runs q_remove
+
   // Part 2: Initialize every new process with a default queuetype and quantumsize
   p->queuetype = 0;
   p->quantumsize = 4;
@@ -159,6 +337,11 @@ found:
 static void
 freeproc(struct proc *p)
 {
+  // P3: Remove process from a queue and reset fields.
+  q_remove(p);
+  p->queue_level = 0;
+  p->ticks_left = 0;
+
   if (p->trapframe)
     kfree((void *)p->trapframe);
   p->trapframe = 0;
@@ -232,6 +415,8 @@ userinit(void)
 
   p->state = RUNNABLE;
 
+  q_enqueue(p); // queue process
+
   release(&p->lock);
 }
 
@@ -304,6 +489,9 @@ kfork(void)
 
   acquire(&np->lock);
   np->state = RUNNABLE;
+
+  q_enqueue(np); // queue process
+
   release(&np->lock);
 
   return pid;
@@ -590,6 +778,14 @@ wakeup(void *chan)
       acquire(&p->lock);
       if (p->state == SLEEPING && p->chan == chan) {
         p->state = RUNNABLE;
+        
+        // P3: keep remaining ticks; only refill if none are left.
+        if (p->ticks_left <= 0)
+          p->ticks_left = q_quantum(p->queue_level);
+
+        // P3: put the woken process back in its queue.
+        q_enqueue(p);
+      
       }
       release(&p->lock);
     }
@@ -611,6 +807,14 @@ kkill(int pid)
       if (p->state == SLEEPING) {
         // Wake process from sleep().
         p->state = RUNNABLE;
+
+        // P3: keep remaining ticks; only refill if none are left.
+        if (p->ticks_left <= 0)
+          p->ticks_left = q_quantum(p->queue_level);
+
+        // P3: put the woken process back in its queue.
+        q_enqueue(p);
+
       }
       release(&p->lock);
       return 0;

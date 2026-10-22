@@ -103,6 +103,15 @@ int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
 
+// Project 3 funciton definitions in proc.c
+void            qinit(void);
+int             q_quantum(int);
+void            q_enqueue(struct proc*);
+void            q_enqueue_front(struct proc*);
+struct proc*    q_pick(void);
+void            q_remove(struct proc*);
+void            q_demote(struct proc*);
+
 // swtch.S
 void            swtch(struct context*, struct context*);
 
