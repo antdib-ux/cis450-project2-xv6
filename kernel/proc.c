@@ -301,7 +301,7 @@ found:
   // P3: new processes start in Q1 with a full Q1 quantum, not yet queued.
   p->queue_level = 1;
   p->ticks_left = q_quantum(1);
-  p->in_queue = 0;
+  p->in_queue = 0; // slot is unused so it can't be queued, freeproc runs q_remove
 
   // Part 2: Initialize every new process with a default queuetype and quantumsize
   p->queuetype = 0;
@@ -779,8 +779,11 @@ wakeup(void *chan)
       if (p->state == SLEEPING && p->chan == chan) {
         p->state = RUNNABLE;
         
-        // P3: keep its level, refill the quantum, put it back in its queue.
-        p->ticks_left = q_quantum(p->queue_level);
+        // P3: keep remaining ticks; only refill if none are left.
+        if (p->ticks_left <= 0)
+          p->ticks_left = q_quantum(p->queue_level);
+
+        // P3: put the woken process back in its queue.
         q_enqueue(p);
       
       }
@@ -805,8 +808,11 @@ kkill(int pid)
         // Wake process from sleep().
         p->state = RUNNABLE;
 
-        // P3: keep its level, refill the quantum, put it back in its queue.
-        p->ticks_left = q_quantum(p->queue_level);
+        // P3: keep remaining ticks; only refill if none are left.
+        if (p->ticks_left <= 0)
+          p->ticks_left = q_quantum(p->queue_level);
+
+        // P3: put the woken process back in its queue.
         q_enqueue(p);
 
       }
