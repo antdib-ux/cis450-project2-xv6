@@ -93,6 +93,14 @@ struct proc {
   int queuetype;
   int quantumsize;
 
+  // P3: queue level (1 = Q1, 2 = Q2, 3 = Q3) and number of timer ticks left
+  // in the current quantum (1 tick = 100ms). Both are protected by p->lock. 
+  // The queue helpers read them to choose a queue and refill their quantum.
+  int queue_level;
+  int ticks_left;
+  // P3: 1 if p is currently in a queue. Protected by qlock, not p->lock.
+  // Only the q_* helpers may touch this.
+  int in_queue;
 
   // wait_lock must be held when using this:
   struct proc *parent; // Parent process
