@@ -433,8 +433,7 @@ scheduler(void)
   struct proc *p;
   struct cpu *c = mycpu();
 
-  //iterator pointer to track current process being observed.
-  struct proc *currP;
+  ///TODO: remove index integer if it will not be used for output
   //integer used to store current array index of the process being ran in Q3
   static int q3ArrIndex = 0;
 
@@ -515,13 +514,6 @@ scheduler(void)
       }else{
         ///q_remove(p);
       }
-
-    //if process is not runnable, check that it's not complete, waiting, or currently running
-    //if process is none of those things, it needs to be reintroduced to the head of its current queue
-    //otherwise, process was stolen by another cpu before it locked; ignore attempts to change for now
-    }else if(p->state != ZOMBIE && p->state != SLEEPING && p->state != RUNNING){
-      ///q_enqueue_front(p);
-    }
 
     release(&p->lock);
   }// END OF INDEFINITE LOOP
