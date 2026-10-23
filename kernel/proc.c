@@ -514,7 +514,7 @@ scheduler(void)
       }else{
         ///q_remove(p);
       }
-
+    }
     release(&p->lock);
   }// END OF INDEFINITE LOOP
 
