@@ -616,14 +616,12 @@ kwait(uint64 addr)
 void
 scheduler(void)
 {
-  ///TODO: uncomment helper fcns for implementation
+
 
   struct proc *p;
   struct cpu *c = mycpu();
 
-  ///TODO: remove index integer if it will not be used for output
-  //integer used to store current array index of the process being ran in Q3
-  static int q3ArrIndex = 0;
+
 
   c->proc = 0;
 
@@ -639,7 +637,7 @@ scheduler(void)
 
     //update p to point at most interactive process
     //if a new process was added, it is expected to be picked
-    ///p = q_pick();
+    p = q_pick();
 
     //check that a process was selected; if p==0, p does not point to a process; wait until it does
     if (p == 0){
@@ -654,7 +652,7 @@ scheduler(void)
 
     //check if process is ready to run
     if(p->state == RUNNABLE){
-      //set state; process will now be running for one tick
+      //set state; process runs until it yields, sleeps or exits
       p->state = RUNNING;
 
       //set to current process in cpu
@@ -665,15 +663,8 @@ scheduler(void)
       //clear process
       c->proc = 0;
 
-      ///TODO: remove; replace with printf logic
-      if(p->queue_level == 3){
-        q3ArrIndex = p - proc;
-      }
-      if (strncmp(p->name, "sh", 16) == 0 || strncmp(p->name, "spin", 16) == 0) {
-        printk("Process %s is of Process ID %d, Queue Type %d, and Quantum Size %d [Q3 AT INDEX %d]\n",
-                p->name, p->pid, p->queue_level, q_quantum(p->queue_level) * 100, q3ArrIndex);
-      }
-      ///end TODO
+
+
 
       //check that process was yielded
       //if statement adjusts queues if necessary prior to reiterating
@@ -684,24 +675,22 @@ scheduler(void)
           //if process is already in the lowest priority queue (Q3), process is in a Round-Robin scheduler
           //no demotions; instead, reset the process' timer for 600ms and send to tail of Q3
           if(p->queue_level == 3){
-            ///p->ticks_left = q_quantum(3);
-            ///q_enqueue(p);
+            p->ticks_left = q_quantum(3);
+            q_enqueue(p);
 
           //if not in Q3, demote process to the tail of the next queue
           }else{
-            ///q_demote(p);
-            ///q_enqueue(p);
+            q_demote(p);
+            q_enqueue(p);
           }
 
         //if process did not run out of time, its priority in the queue should be maintained
         }else{
-          ///q_enqueue_front(p);
+          q_enqueue_front(p);
         }
-
-      //if process was not yielded, it stopped and should be removed from queue
-      }else{
-        ///q_remove(p);
       }
+      // Sleeping and exited processes stay out of the ready queues
+      // q_pick() already removed this process before it ran
     }
     release(&p->lock);
   }// END OF INDEFINITE LOOP
