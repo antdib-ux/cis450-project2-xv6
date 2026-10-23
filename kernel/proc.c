@@ -29,14 +29,14 @@ struct spinlock wait_lock;
 // ======================== Project 3 Functions ========================
 // sMLFQ state. Three circular arrays, one per level (Q1 index = 0, Q2 index = 1, Q3 index = 2).
 // qhead[i] is the index of the front entry of queue i. The tail slot is (qhead + qcount) % NPROC.
-// For Q3 (i == 2) this head index is the Q3 pointer, q_pick() advances it, 
+// For Q3 (i == 2) this head index is the Q3 pointer, q_pick() advances it,
 // and a process that doesn't finish is sent to the tail.
 // All of this, plus every p->in_queue, is protected by qlock.
 struct spinlock qlock;
 struct proc *queues[3][NPROC];
 int qhead[3];   // index of the front process
 int qcount[3];  // amount of processes
- 
+
 // Initialize qlock and make all three queues empty.
 // Called once from procinit() to validate queues before any process exists.
 void qinit(void)
@@ -48,7 +48,7 @@ void qinit(void)
     qcount[i] = 0;
   }
 }
- 
+
 // Quantum in timer ticks for a level (1 tick = 100 ms).
 int q_quantum(int level)
 {
@@ -61,7 +61,7 @@ int q_quantum(int level)
 
   return 0;
 }
- 
+
 // Append p to the tail of the queue for p->queue_level.
 // Caller must hold p->lock (we read queue_level). Takes qlock internally.
 // If p is already queued, skip to prevent adding twice.
@@ -88,7 +88,7 @@ void q_enqueue(struct proc *p)
 
   release(&qlock); // unlock the queue
 }
- 
+
 // Insert p at the head of its queue. Same locking rules as q_enqueue.
 // Only needed if a process is preempted mid-quantum.
 void q_enqueue_front(struct proc *p)
@@ -114,7 +114,7 @@ void q_enqueue_front(struct proc *p)
 
   release(&qlock);
 }
- 
+
 // Remove and return the front process of the highest-priority non-empty
 // queue, or 0 if every queue is empty. Caller holds no locks.
 // The returned process is not locked and is not yet running, the scheduler
@@ -122,7 +122,7 @@ void q_enqueue_front(struct proc *p)
 struct proc *q_pick(void)
 {
   struct proc *p = 0;
- 
+
   acquire(&qlock);
 
   for (int i = 0; i < 3; i++) {
@@ -141,7 +141,7 @@ struct proc *q_pick(void)
   release(&qlock);
   return p;
 }
- 
+
 // Remove p from whatever queue holds it, does nothing if p isn't queued.
 // Caller holds nothing or p->lock, qlock protects queue contents and in_queue
 void q_remove(struct proc *p)
@@ -178,7 +178,7 @@ void q_remove(struct proc *p)
   p->in_queue = 0;
   release(&qlock);
 }
- 
+
 // Move p down one level (except for Q3) and refill its quantum.
 // Caller must hold p->lock. Only edits fields, it doesn't enqueue,
 // so the scheduler calls q_demote(p) then q_enqueue(p).
@@ -193,7 +193,7 @@ void q_demote(struct proc *p)
   // Give the process a full quantum for its new/current level.
   p->ticks_left = q_quantum(p->queue_level);
 }
- 
+
 
 
 
@@ -616,10 +616,18 @@ kwait(uint64 addr)
 void
 scheduler(void)
 {
+  ///TODO: uncomment helper fcns for implementation
+
   struct proc *p;
   struct cpu *c = mycpu();
 
+  ///TODO: remove index integer if it will not be used for output
+  //integer used to store current array index of the process being ran in Q3
+  static int q3ArrIndex = 0;
+
   c->proc = 0;
+
+  //LOOP INDEFINITELY
   for (;;) {
     // The most recent process to run may have had interrupts
     // turned off; enable them to avoid a deadlock if all
@@ -629,36 +637,75 @@ scheduler(void)
     intr_on();
     intr_off();
 
-    int found = 0;
-    for (p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
-      if (p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        // Print scheduling details only for the shell and spin processes
-        // so the trace focuses on the processes required for this project.
-        if(strncmp(p->name, "sh", 16) == 0 || strncmp(p->name, "spin", 16) == 0){
-          printk("Process %s is of Process ID %d, Queue Type %d, and Quantum Size %d\n",
-                 p->name, p->pid, p->queuetype, p->quantumsize);
-        }
+    //update p to point at most interactive process
+    //if a new process was added, it is expected to be picked
+    ///p = q_pick();
 
-        c->proc = p;
-        swtch(&c->context, &p->context);
-
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-        found = 1;
-      }
-      release(&p->lock);
-    }
-    if (found == 0) {
+    //check that a process was selected; if p==0, p does not point to a process; wait until it does
+    if (p == 0){
       // nothing to run; stop running on this core until an interrupt.
       asm volatile("wfi");
+      //reiterate
+      continue;
     }
-  }
+
+    //lock
+    acquire(&p->lock);
+
+    //check if process is ready to run
+    if(p->state == RUNNABLE){
+      //set state; process will now be running for one tick
+      p->state = RUNNING;
+
+      //set to current process in cpu
+      c->proc = p;
+      //begin process
+      swtch(&c->context, &p->context);
+
+      //clear process
+      c->proc = 0;
+
+      ///TODO: remove; replace with printf logic
+      if(p->queue_level == 3){
+        q3ArrIndex = p - proc;
+      }
+      if (strncmp(p->name, "sh", 16) == 0 || strncmp(p->name, "spin", 16) == 0) {
+        printk("Process %s is of Process ID %d, Queue Type %d, and Quantum Size %d [Q3 AT INDEX %d]\n",
+                p->name, p->pid, p->queue_level, q_quantum(p->queue_level) * 100, q3ArrIndex);
+      }
+      ///end TODO
+
+      //check that process was yielded
+      //if statement adjusts queues if necessary prior to reiterating
+      if (p->state == RUNNABLE){
+        //QUANTUM EXPIRATION HANDLING
+        //if process runs out of time, reset Round-Robin timer or demote
+        if(p->ticks_left <= 0){
+          //if process is already in the lowest priority queue (Q3), process is in a Round-Robin scheduler
+          //no demotions; instead, reset the process' timer for 600ms and send to tail of Q3
+          if(p->queue_level == 3){
+            ///p->ticks_left = q_quantum(3);
+            ///q_enqueue(p);
+
+          //if not in Q3, demote process to the tail of the next queue
+          }else{
+            ///q_demote(p);
+            ///q_enqueue(p);
+          }
+
+        //if process did not run out of time, its priority in the queue should be maintained
+        }else{
+          ///q_enqueue_front(p);
+        }
+
+      //if process was not yielded, it stopped and should be removed from queue
+      }else{
+        ///q_remove(p);
+      }
+    }
+    release(&p->lock);
+  }// END OF INDEFINITE LOOP
+
 }
 
 // Switch to scheduler.  Must hold only p->lock
@@ -687,7 +734,37 @@ sched(void)
   swtch(&p->context, &mycpu()->context);
   mycpu()->intena = intena;
 }
+// Count each timer interrupt as 100ms
+// Leave quantum resets and queue changes to scheduler()
+void
+scheduler_tick(void)
+{
+  struct proc *p = myproc();
 
+  if (p == 0)
+    return;
+  // Protect counter while updating, check for expiration
+  acquire(&p->lock);
+
+  if (p->ticks_left > 0)
+    p->ticks_left--;
+  //save scheduling details while holding the process lock
+  int queue_level = p->queue_level;
+  int ticks_left = p->ticks_left;
+  int quantum_expired = (p->ticks_left == 0);
+
+  release(&p->lock);
+
+  // Report tick without process lock hold
+  printk("Process %d has consumed 100ms\n", p->pid);
+
+  //show the queue and remaining quantum for scheduler testing
+  printk("Trace: PID %d, Q%d, Ticks Left: %d\n", p->pid, queue_level, ticks_left);
+
+  // yield() acquires p->lock, releases before calling
+  if (quantum_expired)
+    yield();
+}
 // Give up the CPU for one scheduling round.
 void
 yield(void)
@@ -778,14 +855,14 @@ wakeup(void *chan)
       acquire(&p->lock);
       if (p->state == SLEEPING && p->chan == chan) {
         p->state = RUNNABLE;
-        
+
         // P3: keep remaining ticks; only refill if none are left.
         if (p->ticks_left <= 0)
           p->ticks_left = q_quantum(p->queue_level);
 
         // P3: put the woken process back in its queue.
         q_enqueue(p);
-      
+
       }
       release(&p->lock);
     }
