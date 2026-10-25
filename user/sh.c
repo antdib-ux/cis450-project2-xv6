@@ -145,7 +145,8 @@ getcmd(char *buf, int nbuf)
 int
 main(void)
 {
-  static char buf[100];
+  //increase the input buffer to accommodate for 8 concurrent processes
+  static char buf[512];
   int fd;
 
   // Ensure that three file descriptors are open.
